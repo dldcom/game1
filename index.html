@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>똥피하기 — Glass Pastel Edition (Layers Fixed)</title>
+<title>똥피하기 — Mobile Fixed</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;700;900&display=swap" rel="stylesheet">
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
@@ -14,6 +14,8 @@
   }
   html, body{
     height:100%;
+    overflow:hidden;           /* 스크롤 방지 */
+    overscroll-behavior:none;  /* iOS/Android 당김 방지 */
     font-family: Inter, Pretendard, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
     color:#111827;
     background-image:
@@ -41,6 +43,7 @@
     -webkit-backdrop-filter: blur(12px);
     border-radius: 16px;
     transition: transform .15s ease, box-shadow .15s ease;
+    touch-action: manipulation; /* 모바일 더블탭 줌/스크롤 방지 */
   }
   .btn-glass:hover{ transform: translateY(-2px); box-shadow:0 14px 30px rgba(0,0,0,.22); }
   .btn-glass:active{ transform: scale(.98); }
@@ -53,6 +56,8 @@
     position: relative;
     overflow: hidden;
     border-radius: 24px;
+    /* 배경은 스테이지에 그려서 캔버스는 투명 유지 */
+    background: linear-gradient(180deg,#ffffff 0%, #e5e7eb 100%);
   }
 
   .chip{
@@ -69,10 +74,10 @@
   /* 하단 터치 영역 */
   .touch-zone{
     position:absolute; inset:auto 0 0 0; height:72px; display:flex; gap:12px; padding:12px;
-    pointer-events: none;      /* 캔버스 위에 있어도 버튼만 클릭되게 */
+    z-index: 30;                /* 버튼을 최상단에 표시 (항상 보이게) */
   }
   .touch-btn{
-    flex:1; pointer-events:auto;  /* 버튼 자체는 클릭 가능 */
+    flex:1;
     display:flex; align-items:center; justify-content:center;
     font-weight:900;
   }
@@ -115,18 +120,18 @@
     <!-- 게임 -->
     <section class="glass p-3 sm:p-4 flex justify-center">
       <div class="stage glass mx-auto">
-        <!-- 캔버스: 버튼 위로 보이도록 z-20 + 클릭 통과(pointer-events:none) -->
-        <canvas id="game" class="block mx-auto relative z-20 pointer-events-none"
+        <!-- 캔버스: 투명 배경 + 버튼 아래/위 관계 신경 안 쓰도록 pointer-events:none -->
+        <canvas id="game" class="block mx-auto relative z-10 pointer-events-none"
                 width="360" height="640" aria-label="똥피하기 게임 캔버스"></canvas>
 
-        <!-- HUD (최상단) -->
-        <div class="absolute top-2 left-2 right-2 z-30 flex items-center justify-between">
+        <!-- HUD (맨 위) -->
+        <div class="absolute top-2 left-2 right-2 z-40 flex items-center justify-between">
           <div class="chip">점수 <span id="score" class="ml-1">0</span></div>
           <div class="chip">최고 <span id="high" class="ml-1">0</span></div>
         </div>
 
-        <!-- 모바일 터치 (버튼은 캔버스 아래 z-10) -->
-        <div class="touch-zone z-10">
+        <!-- 모바일 터치 (항상 보이도록 최상단) -->
+        <div class="touch-zone">
           <button class="btn-glass touch-btn" id="leftBtn" aria-label="왼쪽으로 이동">←</button>
           <button class="btn-glass touch-btn" id="rightBtn" aria-label="오른쪽으로 이동">→</button>
         </div>
@@ -171,16 +176,15 @@
 
 <script>
 /**
- * 똥피하기 (Canvas) — 버튼 위에 캐릭터가 보이도록 레이어 조정
- * - 캔버스: z-20 + pointer-events:none (버튼 클릭 통과)
- * - HUD: z-30, 터치 버튼: z-10
- * - 캐릭터 y = H - 120 (버튼 높이보다 위)
+ * 모바일 스크롤 방지 + 버튼 항상 보이기 버전
+ * - 캔버스: 투명(알파) 배경, pointer-events:none
+ * - 하단 버튼 z-30로 항상 표시
+ * - 캐릭터 위치: 버튼 위(H-140)
  */
-
-const HS_KEY = 'dodgyPooHigh_v3';
+const HS_KEY = 'dodgyPooHigh_v4';
 
 const canvas = document.getElementById('game');
-const ctx = canvas.getContext('2d', { alpha: false });
+const ctx = canvas.getContext('2d', { alpha: true }); // 투명 캔버스
 const DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
 initCanvas();
 
@@ -215,10 +219,10 @@ const ui = {
 };
 ui.high.textContent = high;
 
-// 캐릭터 (버튼보다 위에)
+// 캐릭터 (버튼 위)
 const player = {
   x: W/2,
-  y: H - 120,       // 하단 버튼(72px) + 여유를 두고 위쪽 배치
+  y: H - 140,     // 버튼(72px)보다 확실히 위
   w: 56, h: 64,
   speed: 240,
   vx: 0,
@@ -234,16 +238,29 @@ const MIN_INTERVAL = 250;
 
 // 입력
 const keys = { left:false, right:false };
-ui.leftBtn.addEventListener('touchstart', ()=> keys.left=true);
-ui.leftBtn.addEventListener('touchend', ()=> keys.left=false);
-ui.rightBtn.addEventListener('touchstart', ()=> keys.right=true);
-ui.rightBtn.addEventListener('touchend', ()=> keys.right=false);
 
+// 터치: 스크롤 방지
+['touchstart','touchend'].forEach(ev=>{
+  ui.leftBtn.addEventListener(ev, e=>{ e.preventDefault(); }, {passive:false});
+  ui.rightBtn.addEventListener(ev, e=>{ e.preventDefault(); }, {passive:false});
+});
+ui.leftBtn.addEventListener('touchstart', ()=> keys.left=true , {passive:false});
+ui.leftBtn.addEventListener('touchend',   ()=> keys.left=false, {passive:false});
+ui.rightBtn.addEventListener('touchstart',()=> keys.right=true , {passive:false});
+ui.rightBtn.addEventListener('touchend',  ()=> keys.right=false, {passive:false});
+
+// 전역 스와이프 스크롤 억제 (게임 영역에서만)
+document.addEventListener('touchmove', (e)=>{
+  if (e.target.closest('.stage')) e.preventDefault();
+}, {passive:false});
+
+// 버튼들
 ui.btnPause.addEventListener('click', ()=> { if(!over) paused = !paused; });
 ui.btnReset.addEventListener('click', restart);
 ui.modalClose.addEventListener('click', ()=> ui.modal.classList.remove('show'));
 ui.modalRestart.addEventListener('click', ()=> { ui.modal.classList.remove('show'); restart(); });
 
+// 키보드
 window.addEventListener('keydown', e=>{
   if (e.code==='ArrowLeft' || e.key==='a' || e.key==='A') keys.left = true;
   if (e.code==='ArrowRight'|| e.key==='d' || e.key==='D') keys.right = true;
@@ -289,50 +306,39 @@ function loop(t){
 }
 
 function update(dt){
-  // 점수(생존시간)
   score += dt * 100;
   ui.score.textContent = Math.floor(score);
 
-  // 난이도 증가
   fallSpeed += 10 * dt;
   spawnInterval = Math.max(MIN_INTERVAL, spawnInterval - 40 * dt);
 
-  // 이동
   player.vx = (keys.left ? -1 : 0) + (keys.right ? 1 : 0);
   player.x += player.vx * player.speed * dt;
   const halfW = player.w/2;
   player.x = Math.max(halfW + 10, Math.min(W - halfW - 10, player.x));
 
-  // 스폰
   spawnTimer += dt*1000;
   if (spawnTimer >= spawnInterval){
     spawnTimer = 0;
     spawnPoo();
   }
 
-  // 똥 업데이트/충돌
   for (let i=poos.length-1;i>=0;i--){
     const p = poos[i];
     p.vy += GRAVITY * dt;
     p.y += (p.baseVy + p.vy) * dt;
-
     if (hitCircleRect(p.x, p.y, p.r, player.x - player.w/2, player.y - player.h/2, player.w, player.h)){
-      gameOver();
-      return;
+      gameOver(); return;
     }
     if (p.y - p.r > H) poos.splice(i,1);
   }
 }
 
 function render(){
-  // 배경
-  const grd = ctx.createLinearGradient(0,0,0,H);
-  grd.addColorStop(0,'#ffffff');
-  grd.addColorStop(1,'#e5e7eb');
-  ctx.fillStyle = grd;
-  ctx.fillRect(0,0,W,H);
+  // 투명 캔버스이므로 매프레임 클리어만
+  ctx.clearRect(0,0,W,H);
 
-  // 바닥 그림자톤
+  // 바닥 그림자톤(시각적 기준선)
   ctx.fillStyle = 'rgba(17,24,39,0.06)';
   ctx.fillRect(0, H-18, W, 18);
 
@@ -347,7 +353,6 @@ function render(){
   // 똥들
   for (const p of poos){ drawPoo(p.x, p.y, p.r); }
 
-  // 일시정지 오버레이
   if (paused){
     ctx.fillStyle = 'rgba(17,24,39,0.28)';
     ctx.fillRect(0,0,W,H);
@@ -431,19 +436,15 @@ function drawPoo(x,y,r){
 
   // 하이라이트 + 외곽
   ctx.fillStyle = 'rgba(255,255,255,0.25)';
-  ctx.beginPath();
-  ctx.ellipse(x + r*0.4, y - r*0.9, r*0.25, r*0.15, -0.6, 0, Math.PI*2);
-  ctx.fill();
-
-  ctx.lineWidth = 1.4;
-  ctx.strokeStyle = 'rgba(17,24,39,0.35)';
+  ctx.beginPath(); ctx.ellipse(x + r*0.4, y - r*0.9, r*0.25, r*0.15, -0.6, 0, Math.PI*2); ctx.fill();
+  ctx.lineWidth = 1.4; ctx.strokeStyle = 'rgba(17,24,39,0.35)';
   ctx.beginPath(); ctx.ellipse(x, y, r*1.2, r*0.7, 0, 0, Math.PI*2); ctx.stroke();
 
   ctx.restore();
 }
 
 function spawnPoo(){
-  const r = rand(9, 14); // 캐릭터보다 작게
+  const r = rand(9, 14);
   const x = rand(12 + r, W - 12 - r);
   const y = -r - 10;
   const baseVy = fallSpeed + rand(-20, 24);
